@@ -4,6 +4,11 @@ module Main where
 
 import qualified Data.Text as T
 import qualified Data.ByteString.Char8 as BS
+import qualified Data.ByteString.Lazy.Char8 as BSL
+
+import qualified Data.IORef as IOR
+
+import qualified Control.Monad.Trans as MTrans
 
 import qualified Network.HTTP.Types as HTTP
 import qualified Network.HTTP.Types.Header as Headers
@@ -17,18 +22,44 @@ import qualified Text.Blaze.Html5 as H
 import qualified Text.Blaze.Html5.Attributes as A
 import qualified Text.Blaze.Html.Renderer.Utf8 as R
 
-app :: Wai.Application
-app request respond = do
-    -- body <- Wai.lazyRequestBody request
+application :: Int -> Wai.Application
+application state request respond =
     respond $ case (request_method, request_path) of
         ("GET", "/") -> rootTemplateRoute request
+        ("GET", "/state") -> getState request state
+        -- ("POST", "/state") -> incrementState request
         _ -> notFoundTemplateRoute request
         where
             request_method = BS.unpack $ Wai.requestMethod request
             request_path = BS.unpack $ Wai.rawPathInfo request
 
-loggedApp :: Wai.Application
-loggedApp = Mid.logStdout app
+-- statefulMiddleware :: IOR.IORef Int -> Wai.Middleware
+statefulMiddleware :: (MTrans.MonadIO m, Num t1, Show t1) => IOR.IORef t1 -> (t1 -> t2 -> t3 -> m b) -> t2 -> t3 -> m b
+statefulMiddleware serverState app request respond = do
+    count <- MTrans.liftIO $ incCount serverState
+    app count request respond
+
+monolith :: IOR.IORef Int -> Wai.Application
+monolith s = Mid.logStdout $ statefulMiddleware s application
+
+incCount :: (Num a, Show a) => IOR.IORef a -> IO a
+incCount counter = IOR.atomicModifyIORef counter (\c -> (c+1, c))
+
+data ServerState = ServerState { sState :: Int }
+
+-- return current value
+getState :: Wai.Request -> Int -> Wai.Response
+getState _ state = Wai.responseLBS
+    HTTP.status200
+    [(Headers.hContentType, BS.pack "text/plain")]
+    (BSL.pack $ show state)
+    
+-- return successful/failed: current value
+incrementState :: Wai.Request -> Wai.Response
+incrementState _ = Wai.responseLBS
+    HTTP.status200
+    [(Headers.hContentType, BS.pack "text/plain")]
+    (BSL.pack "")
 
 cssEntry :: T.Text -> [T.Text] -> T.Text
 cssEntry selector properties = T.unlines
@@ -133,7 +164,7 @@ rootTemplate = H.docTypeHtml $ H.html $ do
         H.div H.! A.id "frame" $ do
             H.h1 "internet common #5819574234"
             H.div $ do
-                H.a H.! A.class_ "link" H.! A.href "#what-if" $ "what if ..."
+                H.a H.! A.href "#what-if" $ "what if ..."
                 -- H.span " /// "
                 -- H.span "healthcheck"
                 -- H.span " /// "
@@ -141,29 +172,41 @@ rootTemplate = H.docTypeHtml $ H.html $ do
         H.span H.! A.id "what-if" $ ""
         H.div H.! A.id "frame" $ do
             H.h1 "what if ..."
-            whatIfTemplate
-                "... abc abc bac?"
-                "abc.cordcivilian.com"
-                "github.com/cordcivilian/abc"
-                "2024-12-17"
+            whatIfTemplate $ WhatIf
+                (WhatIfQuestion "... abc abc bac?")
+                (WhatIfURL "abc.cordcivilian.com")
+                (WhatIfSource "github.com/cordcivilian/abc")
+                (WhatIfLastModified "2024-12-17")
             H.hr
-            whatIfTemplate
-                "... third second forth?"
-                "second.cordcivilian.com"
-                "github.com/cordcivilian/second"
-                "2024-12-01"
+            whatIfTemplate $ WhatIf
+                (WhatIfQuestion "... third second forth?")
+                (WhatIfURL "second.cordcivilian.com")
+                (WhatIfSource "github.com/cordcivilian/second")
+                (WhatIfLastModified "2024-12-01")
 
-whatIfTemplate :: String -> String -> String -> String -> H.Html
-whatIfTemplate question url source modified = H.div $ do
-    H.p H.! A.class_ "what-if-q" $ H.string question
+newtype WhatIfQuestion = WhatIfQuestion { unQuestion :: String }
+newtype WhatIfURL = WhatIfURL { unURL :: String }
+newtype WhatIfSource = WhatIfSource { unSource :: String }
+newtype WhatIfLastModified = WhatIfLastModified {unLastModified :: String}
+
+data WhatIf = WhatIf 
+    { question :: WhatIfQuestion
+    , url :: WhatIfURL
+    , source :: WhatIfSource
+    , lastModified :: WhatIfLastModified
+    }
+
+whatIfTemplate :: WhatIf -> H.Html
+whatIfTemplate w = H.div $ do
+    H.p H.! A.class_ "what-if-q" $ H.string (unQuestion $ question w)
     H.div H.! A.class_ "what-if-links" $ do
         H.a H.! A.class_ "what-if-link-site" H.!
-            A.href (H.toValue $ "https://" ++ url) $
-                H.string url
-        H.span " | "
+            A.href (H.toValue $ "https://" ++ (unURL $ url w)) $
+                H.string (unURL $ url w)
+        H.span "|"
         H.a H.! A.class_ "what-if-link-source" H.!
-            A.href (H.toValue $ "https://" ++ source) $
-                H.string $ "source - v" ++ modified
+            A.href (H.toValue $ "https://" ++ (unSource $ source w)) $
+                H.string $ "source - v" ++ (unLastModified $ lastModified w)
 
 notFoundTemplateRoute :: Wai.Request -> Wai.Response
 notFoundTemplateRoute _ = Wai.responseLBS
@@ -186,4 +229,5 @@ main :: IO ()
 main = do
     let port = 5000
     putStrLn $ "Server starting on port " ++ show (port :: Int)
-    Warp.run port loggedApp
+    counter <- IOR.newIORef 0
+    Warp.run port $ monolith counter
