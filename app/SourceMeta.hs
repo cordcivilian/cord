@@ -25,3 +25,24 @@ getRepoInfo owner repo = do
     HTTP.addRequestHeader "User-Agent" "cordcivilian" request
   let jsonBody = HTTP.getResponseBody response
   return $ JSON.eitherDecode jsonBody
+
+getUpdatedAt :: String -> IO String
+getUpdatedAt s = do
+    let (owner, repo) = getOwnerRepoFromSourceLink s
+    result <- getRepoInfo owner repo
+    case result of
+        Right repoInfo -> return $ repoUpdatedAt repoInfo
+        Left _ -> return ""
+
+getOwnerRepoFromSourceLink :: String -> (String, String)
+getOwnerRepoFromSourceLink s = extractTuple $ split s '/'
+
+extractTuple :: [String] -> (String, String)
+extractTuple (_:owner:repo:_) = (owner, repo)
+extractTuple _ = ("", "")
+
+split :: String -> Char -> [String]
+split str delim =
+  case break (==delim) str of
+    (a, _:b) -> a : split b delim
+    (a, _)   -> [a]

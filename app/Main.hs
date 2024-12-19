@@ -10,7 +10,8 @@ import qualified Data.ByteString.Lazy.Char8 as BSL
 
 import qualified Data.IORef as IOR
 
-import qualified Control.Monad.Trans as MTrans
+import qualified Control.Monad as Monad
+-- import qualified Control.Monad.Trans as MTrans
 
 import qualified Network.HTTP.Types as HTTP
 import qualified Network.HTTP.Types.Header as Headers
@@ -24,7 +25,7 @@ import qualified Text.Blaze.Html5 as H
 import qualified Text.Blaze.Html5.Attributes as A
 import qualified Text.Blaze.Html.Renderer.Utf8 as R
 
--- import qualified SourceMeta as Source
+import qualified SourceMeta as Source
 
 application :: IOR.IORef WhatIfsConfig -> Wai.Application
 application statesRef request respond =
@@ -32,7 +33,7 @@ application statesRef request respond =
         ("GET", "/") -> do
             response <- rootTemplateRoute request statesRef
             respond response
-        ("GET", "/test/state") -> do
+        ("GET", "/test/states") -> do
             response <- statesRoute request statesRef
             respond response
         _ -> respond $ notFoundTemplateRoute request
@@ -40,16 +41,24 @@ application statesRef request respond =
             request_method = BS.unpack $ Wai.requestMethod request
             request_path = BS.unpack $ Wai.rawPathInfo request
 
-statefulMiddleware :: (MTrans.MonadIO m, Show a)
-                   => IOR.IORef a
-                   -> (IOR.IORef a -> t1 -> t2 -> m b)
-                   -> (t1 -> t2 -> m b)
+statefulMiddleware :: IOR.IORef WhatIfsConfig
+                   -> (IOR.IORef WhatIfsConfig -> t1 -> t2 -> IO b)
+                   -> t1 -> t2 -> IO b
 statefulMiddleware statesRef app request respond = do
-    -- _ <- MTrans.liftIO $ incCount state
+    _ <- updateSourceLastModified statesRef
     app statesRef request respond
 
-incCount :: IOR.IORef a -> IO a
-incCount counter = IOR.atomicModifyIORef' counter (\c -> (c, c))
+updateSourceLastModified :: IOR.IORef WhatIfsConfig -> IO WhatIfsConfig
+updateSourceLastModified statesRef = do
+    currentConfig <- IOR.readIORef statesRef
+    updatedList <- Monad.forM currentConfig $ \(s, (q, u, status, mLastModified)) -> do
+        case mLastModified of
+            Nothing -> do
+                l <- Source.getUpdatedAt s
+                return (s, (q, u, status, Just $ WhatIfLastModified l))
+            Just existing -> return (s, (q, u, status, Just $ existing))
+    IOR.atomicWriteIORef statesRef updatedList
+    return updatedList
 
 monolith :: IOR.IORef WhatIfsConfig -> Wai.Application
 monolith statesRef = Mid.logStdout $ statefulMiddleware statesRef application
@@ -183,7 +192,7 @@ mkWhatIf a b c d e = whatIfTemplate b (WhatIf a c d e)
 whatIfs :: WhatIfsConfig -> [H.Html]
 whatIfs states =
     let go = (\(k, (q, u, s, m)) -> mkWhatIf (WhatIfQuestion q) s (WhatIfURL u) (WhatIfSource k) m)
-     in map go states
+    in map go states
 
 data WhatIfProjectStatus = Released | WIP | Announced
     deriving (Eq, Show, Enum, Bounded)
@@ -212,13 +221,13 @@ whatIfTemplate status t = case status of
                 H.string $ showWhatIfLastModified $ lastModified t
     WIP -> H.div $ do
         H.p H.! A.class_ "what-if-q" $ do
-            H.i $ H.string (unQuestion $ question t)
+            H.i $ H.string $ "( " ++ (unQuestion $ question t) ++ " )"
         H.p H.! A.class_ "what-if-s" $ do
             H.a H.! A.href (H.toValue $ "https://" ++ (unSource $ source t)) $
                 H.string $ showWhatIfLastModified $ lastModified t
     Announced -> H.div $ do
         H.p H.! A.class_ "what-if-q" $ do
-            H.i $ H.string (unQuestion $ question t)
+            H.i $ H.string $ "( " ++ (unQuestion $ question t) ++ " )"
 
 showWhatIfLastModified :: Maybe WhatIfLastModified -> String
 showWhatIfLastModified a =
