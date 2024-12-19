@@ -55,7 +55,9 @@ updateSourceLastModified statesRef = do
         case mLastModified of
             Nothing -> do
                 l <- Source.getUpdatedAt s
-                return (s, (q, u, status, Just $ WhatIfLastModified l))
+                case l of 
+                  "-unavailable" -> return (s, (q, u, status, Nothing))
+                  _ -> return (s, (q, u, status, Just $ WhatIfLastModified l))
             Just existing -> return (s, (q, u, status, Just $ existing))
     IOR.atomicWriteIORef statesRef updatedList
     return updatedList

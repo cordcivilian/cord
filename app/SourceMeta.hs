@@ -3,7 +3,11 @@
 module SourceMeta where
 
 import qualified Data.Aeson as JSON
+
 import qualified Network.HTTP.Simple as HTTP
+
+import qualified Data.Time as Time
+import qualified Data.Time.Format.ISO8601 as ISO8601
 
 data RepoInfo = RepoInfo
   { repoName :: String
@@ -31,8 +35,16 @@ getUpdatedAt s = do
     let (owner, repo) = getOwnerRepoFromSourceLink s
     result <- getRepoInfo owner repo
     case result of
-        Right repoInfo -> return $ repoUpdatedAt repoInfo
-        Left _ -> return ""
+        Right repoInfo -> do
+            let maybeUpdatedAt = getISO8601Date $ repoUpdatedAt repoInfo -- pure
+            return $ maybe "-unavailable" id maybeUpdatedAt
+        _ -> return "-unavailable"
+
+getISO8601Date :: String -> Maybe String
+getISO8601Date iso8601 = do
+    utcTime <- ISO8601.iso8601ParseM iso8601 :: Maybe Time.UTCTime
+    return $ ISO8601.formatShow
+      (ISO8601.calendarFormat ISO8601.ExtendedFormat) (Time.utctDay utcTime)
 
 getOwnerRepoFromSourceLink :: String -> (String, String)
 getOwnerRepoFromSourceLink s = extractTuple $ split s '/'
