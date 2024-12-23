@@ -3,6 +3,8 @@
 module Main where
 
 -- import qualified Data.Map as M
+--
+import System.Environment (lookupEnv)
 
 import qualified Data.Text as T
 import qualified Data.ByteString.Char8 as BS
@@ -89,7 +91,7 @@ rootTemplateRoute _ statesRef = do
 cssEntry :: T.Text -> [T.Text] -> T.Text
 cssEntry selector properties = T.unlines
     [ selector <> " {"
-    , T.intercalate "\n" (map (\p -> "    " <> p <> ";") properties)
+    , T.unlines (map (\p -> "    " <> p <> ";") properties)
     , "}"
     ]
 
@@ -97,7 +99,7 @@ cssProperty :: T.Text -> T.Text -> T.Text
 cssProperty property value = T.intercalate ": " [property, value]
 
 combineCSS :: [T.Text] -> T.Text
-combineCSS = T.intercalate ""
+combineCSS = T.concat
 
 rootCSS :: T.Text
 rootCSS = cssEntry ":root" 
@@ -264,7 +266,9 @@ projects =
 
 main :: IO ()
 main = do
-    let port = 5000
+    maybePort <- lookupEnv "PORT"
+    let autoPort = 5000
+        port = maybe autoPort read maybePort
     putStrLn $ "Server starting on port " ++ show (port :: Int)
     ini <- IOR.newIORef projects
     Warp.run port $ monolith ini
