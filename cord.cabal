@@ -84,10 +84,8 @@ executable cord
         blaze-html,
         blaze-markup,
         text,
-        mtl,
         aeson,
         http-conduit,
-        containers,
 
     -- Directories containing source files.
     hs-source-dirs:   app

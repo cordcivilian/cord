@@ -50,7 +50,7 @@ getOwnerRepoFromSourceLink :: String -> (String, String)
 getOwnerRepoFromSourceLink s = extractTuple $ split s '/'
 
 extractTuple :: [String] -> (String, String)
-extractTuple (_:owner:repo:_) = (owner, repo)
+extractTuple (_:_:_:owner:repo:_) = (owner, repo)
 extractTuple _ = ("", "")
 
 split :: String -> Char -> [String]
